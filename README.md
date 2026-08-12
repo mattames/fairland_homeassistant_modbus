@@ -1,4 +1,4 @@
-# Pool heat pump — Modbus
+# AES / Fairland Pool Heat Pump over Modbus
 
 Modbus integration for an AES-badged (rebadged Fairland) pool heat pump with a
 **MWH216** control board, reached over a Protoss PW11 RS485-to-WiFi gateway in
