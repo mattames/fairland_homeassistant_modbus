@@ -47,6 +47,12 @@ register reads back the value you wrote, and nothing anywhere reports a
 problem. That single register is the reason this repo is scoped to one board
 family and repeatedly refuses to borrow values from the other.
 
+This is not just a reading of the two spreadsheets. Peraqua's own hardware deck
+closes with a "Tips" page telling installers to *check the board version and
+adapt the mode accordingly*, printing the two register-1 definitions side by
+side. The distributor warns about this specific register, which is independent
+support for treating it as the difference that matters.
+
 The same trap catches **input registers 15 and up**. They are Reserved on
 MWH216. Several configs circulating on the Home Assistant forums read input
 registers 17 and 18 as minimum/maximum setpoint — those are for a different
@@ -97,12 +103,19 @@ WiFi gateway. Only the hub block at the top of the HA package assumes a PW11.
 These are the manufacturer's own protocol documents, included so you can check
 any register yourself rather than taking this repo's word for it.
 
+They come from [Peraqua's product page for the iQ Inver Silence Vertical
+13.2 kW](https://shop.peraqua.com/en/p/smart-full-inverter-heat-pump-iq-inver-silence-vertical-13-2-kw-230-v-1p-r32-vertical-discharge-titanium-heat-exchanger-modbus-capable-app-control-suitable-for-salt-electrolysis-ultra-quiet-7301269.html)
+(art. 7301269), which publishes seven documents for the unit. The copies here
+were verified **byte-identical to the upstream originals** by SHA-256 on
+2026-08-12. If you have a Fairland-based unit from any brand, that page is
+worth checking — it is the most complete public source found so far.
+
 | File | Status |
 |---|---|
 | `protocol_MWH216_MWH298.xlsx` | **The document for this board.** The one to check when a register is in doubt. |
 | `protocol_MWH216_overview.png` | Scanned overview page of the same sheet. Used to resolve the "reads allowed as first address" marker column. |
 | `protocol_MWH381_MWH366_MWH367.xlsx` | Sibling family. Kept **only** to show where the families diverge. Do not read a register out of this file and apply it to a MWH216. |
-| `protocol_temperature_types.xlsx` | Temperature conversion appendix. **Belongs to the MWH366/367/381 family, not to this board** — see [`AUDIT.md` §4.1](AUDIT.md) for the proof. Where it overlaps with the MWH216 document it agrees, so nothing derived from it is wrong, but it is not a second source for this board. |
+| `protocol_temperature_types.xlsx` | Temperature conversion appendix. **Belongs to the MWH366/367/381 family, not to this board** — see [`AUDIT.md` §4.1](AUDIT.md) for the proof. Where it overlaps with the MWH216 document it agrees, so nothing derived from it is wrong, but it is not a second source for this board. Upstream it is simply `Modbus_Wärmepumpe.xlsx`, listed with no family in the name between the two family-specific files, which is likely how it came to be taken for a MWH216 document. |
 
 ### Third-party reference
 
@@ -253,6 +266,12 @@ list the register at all, and the MWH366/367/381 document leaves its own IR 12
 unannotated. There is no second document to fall back on. (IR 6, gas exhaust,
 is by contrast marked type 2 in both documents — that one is corroborated.)
 
+This has been tested rather than assumed. All seven documents Peraqua publish
+for the unit were checked on 2026-08-12: the other four carry no register
+annotations, and `Modbus_Wärmepumpe.xlsx` does not contain the string "Cooling
+plate temp" at all. Nothing upstream corroborates it, so the answer has to come
+from hardware.
+
 If the cell is wrong, IR 12 reads 30 °C low and still looks plausible. The scan
 script prints a dedicated check comparing both readings against ambient: the
 cooling plate is the inverter heatsink, so it sits at or above ambient when
@@ -270,6 +289,12 @@ package, and the scan script.
 - Which OUT bits are compressor, fan, 4-way valve and circulation pump. The
   document does not say; the bits are generic. Named versions found in other
   Fairland configs come from sibling boards and do not apply.
+- Whether DIN2 (discrete input 3) is jumpered as an external enable contact on
+  your unit. Peraqua document it that way — factory-bridged, and opening it
+  blocks the pump without overwriting any parameter — but that is a distributor
+  wiring convention, not something the Modbus document states. See the
+  [register map](mwh216_register_map.md#discrete-inputs-1x--fc02); it is also a
+  control path that needs no register write.
 - Whether the read-length constraint is actually enforced. If it is, holding
   register 25 sits outside every permitted block and cannot be read compliantly
   at all — the document defines a register its own read rule cannot address.

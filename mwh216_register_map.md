@@ -70,6 +70,24 @@ The I/O bits are generic on this board — the document gives no indication of
 what DIN1–5 and OUT1–9 are physically wired to. Identify them by watching the
 states through a run cycle.
 
+**DIN2 (address 3) is the external enable contact**, at least as Peraqua wire
+their units. Their one-page note *External release via DIN2* (linked from the
+product page in Sources) states that DIN2 is a socket on the main board,
+bridged with a jumper at the factory and therefore closed on delivery. Opening
+it blocks the heat pump and the controller displays `OFF`. It does not
+overwrite the operating mode or any parameter — it behaves like the flow
+switch, blocking regardless of current state, and when closed the pump starts
+only if there is also a heating or cooling demand. The external controller must
+switch it **potential-free; no voltage may be applied.** Peraqua suggest
+keeping it closed for at least 60 minutes at a time to avoid short-cycling.
+
+Two caveats. This is a distributor wiring convention, not a claim in the
+manufacturer Modbus document, which still names the bit only as DIN2. And it
+describes Peraqua's units — confirm the jumper exists on your own board before
+relying on it. Note that it is also a potential control path in its own right:
+a dry contact on DIN2 blocks and releases the pump without writing any
+register.
+
 ## Holding registers (4x) — FC03 read / FC06 write
 
 | Addr | Content | Range | Step | Default | Notes |
@@ -141,6 +159,17 @@ The two families invert the meaning of 0 and 1 in the mode register. A config
 copied across would select Silence when asking for Smart, and vice versa —
 with no error.
 
+This is corroborated outside the two spreadsheets. Peraqua's own hardware deck
+*iQnnect Hardware Wärmepumpe* (linked from the product page in Sources) ends
+with a "Tips" page reading *"Version der Platine prüfen, und Modus
+gegebenenfalls adaptieren"* — check the board version and adapt the mode
+accordingly — and prints the two register-1 definitions side by side: MWH216 &
+MWH298 as `Working Mode Selection` (0 Smart, 1 Silence, 3 Turbo) against
+MWH381 & MWH366 & MWH367 as `Fan speed selection` (0 Silence, 1 Smart,
+2 Turbo). The distributor warns installers about this specific register, which
+is independent support for treating it as the headline difference between the
+families.
+
 The first-address row matters as much as the length row. MWH381 states only a
 maximum consecutive-read count and no restriction on where a read starts, so a
 polling scheme written for that family is legal there and violates the MWH216
@@ -196,6 +225,10 @@ fallback described in the HA package will not cover it.
 
 - Fairland *Modbus Wärmepumpe MWH216 & MWH298* (manufacturer document)
 - Fairland *Modbus Wärmepumpe MWH381 & MWH366 & MWH367* (manufacturer document)
+- Peraqua product page for the iQ Inver Silence Vertical 13.2 kW (art. 7301269),
+  which is where both of the above originate and which carries seven documents
+  in total, including the DIN2 note and the hardware deck cited above:
+  <https://shop.peraqua.com/en/p/smart-full-inverter-heat-pump-iq-inver-silence-vertical-13-2-kw-230-v-1p-r32-vertical-discharge-titanium-heat-exchanger-modbus-capable-app-control-suitable-for-salt-electrolysis-ultra-quiet-7301269.html>
 - <https://github.com/spdr870/fairland_iphcr45_modbus>
 - <https://github.com/rstcologne/ESP-Home-Fairland-Heatpump>
 - <https://community.home-assistant.io/t/fairland-heat-pump-to-ha/304871>

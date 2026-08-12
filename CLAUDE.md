@@ -24,10 +24,21 @@ Written here:
 Source documents — these are the authority, the two files above are derived
 from them:
 
+All three spreadsheets came from the Peraqua product page for the iQ Inver
+Silence Vertical 13.2 kW (art. 7301269), which publishes seven documents. The
+repo's copies were confirmed **byte-identical to the upstream originals** by
+SHA-256 on 2026-08-12, so there is no transcription risk in the files
+themselves — only in what has been derived from them.
+
 - `protocol_MWH216_MWH298.xlsx` — the manufacturer protocol document for
-  **this** board. The one to check when a register is in doubt.
+  **this** board. The one to check when a register is in doubt. Upstream
+  filename `Modbus_Wärmepumpe_MWH216 & MWH298.xlsx`.
 - `protocol_temperature_types.xlsx` — **belongs to the MWH366/367/381 family,
-  not to this board.** Its 17 rows match that document's annotated registers
+  not to this board.** Upstream it is simply `Modbus_Wärmepumpe.xlsx`, listed
+  on the product page as just "Modbus" with no family in the name, sitting
+  between the two family-specific files — which is almost certainly how it came
+  to be mistaken for a MWH216 document. Its 17 rows match that document's
+  annotated registers
   one-to-one in order, including EEV opening setting and fan speed P19, which
   are Reserved on MWH216; and it omits cooling plate temp, which MWH216 does
   annotate. The two type formulas and every overlapping register agree with
@@ -71,6 +82,13 @@ plausible inverter-heatsink temperature, type 1 is the correct encoding for
 this register and both the map and the HA package need changing. There is no
 second document to check.
 
+This was tested rather than assumed. On 2026-08-12 all seven documents Peraqua
+publish for this unit were pulled and checked: the other four are a product
+manual, a hardware deck and the DIN2 note, none of which carry register
+annotations, and `Modbus_Wärmepumpe.xlsx` contains no "Cooling plate temp"
+string at all. **Nothing upstream corroborates it.** Do not go looking again —
+the answer has to come from hardware.
+
 **Input registers 15–29 are Reserved on MWH216.** There are no version,
 model-code, setpoint-limit, supply-voltage or restart-delay registers. Configs
 found online that read input registers 15+ are for a different board.
@@ -79,6 +97,15 @@ found online that read input registers 15+ are for a different board.
 (7–15), malfunction indicator (16), compressor demand (17). The document does
 not say what they're wired to. Named versions found in other Fairland configs
 are from sibling boards and do not apply.
+
+The one exception is **DIN2 (DI address 3), the external enable contact** —
+jumpered closed at the factory, and opening it blocks the pump without touching
+any parameter. That comes from Peraqua's *External release via DIN2* note, not
+from the Modbus document, so it is a distributor wiring convention rather than
+a board fact; confirm the jumper exists before relying on it. See the register
+map for the detail. It is worth knowing as a control path: a potential-free dry
+contact on DIN2 blocks and releases the pump with no register write at all,
+which may suit the solar-dump use case better than Modbus writes.
 
 **Coil 2 is "Restore factory values". Never write it.**
 

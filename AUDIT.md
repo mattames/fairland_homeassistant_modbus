@@ -401,6 +401,81 @@ So nothing derived from it is wrong. The issue is provenance, not content.
 
 ---
 
+## Addendum — upstream provenance check, 2026-08-12
+
+Added after the audit above. The source spreadsheets were traced to their
+origin: the Peraqua product page for the iQ Inver Silence Vertical 13.2 kW
+(art. 7301269), which publishes **seven** documents for the unit. All seven
+were pulled and examined.
+
+### A.1 — The repo's three spreadsheets are byte-identical to upstream
+
+SHA-256, repo copy against freshly downloaded original:
+
+| Repo file | Upstream filename | SHA-256 | Match |
+|---|---|---|---|
+| `protocol_MWH216_MWH298.xlsx` | `Modbus_Wärmepumpe_MWH216 & MWH298.xlsx` | `8ea82a86…9a7a32` | ✓ |
+| `protocol_MWH381_MWH366_MWH367.xlsx` | `Modbus_Wärmepumpe_MWH381 & MWH366 & MWH367.xlsx` | `7746de64…0186b868` | ✓ |
+| `protocol_temperature_types.xlsx` | `Modbus_Wärmepumpe.xlsx` | `98171b64…b0e1339b` | ✓ |
+
+So every finding above rests on unmodified source files. Nothing was corrupted
+or edited in transit, and the cell references in this audit can be checked
+against upstream directly.
+
+### A.2 — Finding 4.1 explained, and reinforced
+
+`protocol_temperature_types.xlsx` is upstream simply `Modbus_Wärmepumpe.xlsx`,
+listed on the product page as just **"Modbus"** — no family in the name — and
+positioned between the two family-specific files. That is very likely how it
+came to be described as a MWH216 document in the first place. The content-based
+proof in 4.1 that it belongs to the MWH366/367/381 family stands unchanged; the
+naming now explains the error rather than excusing it.
+
+### A.3 — IR 12 remains single-sourced, now tested rather than assumed
+
+The remaining four documents (product manual, `iQnnect_Hardware_Wärmepumpe.pdf`,
+and the DIN2 note in German and English) carry no register annotations. A string
+search across all three spreadsheets confirms `Modbus_Wärmepumpe.xlsx` does not
+contain "Cooling plate temp" at all, while both family documents do.
+
+**Nothing in the complete upstream document set corroborates IR 12 being
+temperature type 2.** The claim still rests solely on `[H116]`. This closes the
+question of whether a second source exists: it does not.
+
+### A.4 — The HR 1 inversion is corroborated outside the spreadsheets
+
+`iQnnect_Hardware_Wärmepumpe.pdf` closes with a "Tips" page reading *"Version
+der Platine prüfen, und Modus gegebenenfalls adaptieren"*, printing MWH216 &
+MWH298 `Working Mode Selection` (0 Smart, 1 Silence, 3 Turbo) against MWH381 &
+MWH366 & MWH367 `Fan speed selection` (0 Silence, 1 Smart, 2 Turbo). Independent
+distributor-level support for the family difference in task 3. It also
+reproduces the "(Some models without Turbo)" caveat from finding 1.1.
+
+### A.5 — DIN2 is documented as the external enable contact
+
+*External release via DIN2* (one page, DE and EN) states that DIN2 — discrete
+input address 3 — is a main-board socket, factory-bridged with a jumper and so
+closed on delivery; opening it blocks the pump and displays `OFF`, without
+overwriting mode or parameters, behaving like the flow switch. It must be
+switched potential-free. This is the only one of the eighteen generic I/O bits
+with a documented function, but the source is a distributor wiring note rather
+than the manufacturer Modbus document, so it is recorded in the register map as
+a convention to confirm rather than a board fact.
+
+### A.6 — Not recorded: OUT relay labels from a board photograph
+
+`iQnnect_Hardware_Wärmepumpe.pdf` includes a photograph of a physical
+MWH298-V2 board whose output relays carry stuck-on labels (water pump, 4-way
+valve, condenser heating belt, and high/middle/low fan speeds). This was
+deliberately **not** carried into the register map. Two reasons: several of the
+relevant terminals are obscured in the photograph, so part of any mapping would
+be inferred rather than read; and the unit photographed uses a three-speed AC
+fan, whereas MWH216 is a DC inverter reporting fan RPM at IR 14 — a board wired
+for fan-speed relays is not wired like this one. Open question 5 stays open, to
+be settled by watching a run cycle.
+
+---
+
 ## Suggested priority
 
 1. **2.1** — climate `min_temp`/`max_temp` vs cooling range. Only finding with
