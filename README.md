@@ -55,6 +55,14 @@ Options: `--slave` (default 1, fixed on this board), `--timeout` (default 3 s),
 
 ### Reading the output
 
+**Start with the PRIORITY CHECK block.** Input register 12 (cooling plate) is
+documented as type 2 by a single cell in a single document — the sibling-family
+appendix doesn't list the register, and that family's own document leaves its
+IR 12 unannotated. The scan prints a dedicated check comparing both readings
+against ambient and says whether type 2 holds up. Settle this before trusting
+anything else, because a wrong encoding here reads 30 °C low and still looks
+plausible. One idle sample often can't decide it; re-run under load.
+
 **Temperatures print both conversions.** This board uses two encodings, and
 applying the wrong one reads 30 °C out while still looking plausible. Each
 temperature line shows the raw value, type 1 `(raw−60)/2`, and type 2 `raw/2`,

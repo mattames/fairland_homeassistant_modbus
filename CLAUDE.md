@@ -26,9 +26,13 @@ from them:
 
 - `protocol_MWH216_MWH298.xlsx` — the manufacturer protocol document for
   **this** board. The one to check when a register is in doubt.
-- `protocol_temperature_types.xlsx` — protocol document carrying the type 1 /
-  type 2 conversion tables and the per-register "Register Content" notes that
-  say which type each temperature uses.
+- `protocol_temperature_types.xlsx` — **belongs to the MWH366/367/381 family,
+  not to this board.** Its 17 rows match that document's annotated registers
+  one-to-one in order, including EEV opening setting and fan speed P19, which
+  are Reserved on MWH216; and it omits cooling plate temp, which MWH216 does
+  annotate. The two type formulas and every overlapping register agree with
+  the MWH216 document, so nothing derived from it is wrong — but it is not a
+  source of authority for this board. See the IR 12 note below.
 - `protocol_MWH381_MWH366_MWH367.xlsx` — sibling board family. Kept only to
   show where the families diverge. Do not read a register out of this file and
   apply it to MWH216.
@@ -55,6 +59,18 @@ Type 2 applies to exactly two registers: input 6 (gas exhaust) and input 12
 (cooling plate). Everything else temperature-related is type 1. Mixing them up
 reads 30 °C out and still looks plausible.
 
+**Input 12 is single-sourced — confirm it first on hardware.** The type-2
+claim for IR 12 rests on one cell in one document (the Remark column of the
+cooling-plate row in `protocol_MWH216_MWH298.xlsx`). Nothing corroborates it:
+`protocol_temperature_types.xlsx` belongs to the sibling family and does not
+list the register at all, and the MWH366/367/381 document leaves its own IR 12
+unannotated. IR 6 by contrast is annotated type 2 in both documents.
+
+So IR 12 is the highest-priority item in the scan: if it reads ~30 °C below a
+plausible inverter-heatsink temperature, type 1 is the correct encoding for
+this register and both the map and the HA package need changing. There is no
+second document to check.
+
 **Input registers 15–29 are Reserved on MWH216.** There are no version,
 model-code, setpoint-limit, supply-voltage or restart-delay registers. Configs
 found online that read input registers 15+ are for a different board.
@@ -67,11 +83,20 @@ are from sibling boards and do not apply.
 **Coil 2 is "Restore factory values". Never write it.**
 
 **Holding register 1** on MWH216: 0 = Smart, 1 = Silence, 3 = Turbo. Value 2 is
-undefined. The MWH366/367/381 boards invert this (0 = Silence, 1 = Smart), so
-configs must not be copied between families.
+undefined. The document qualifies Turbo with "(Some models without Turbo)", so
+writing 3 may be a no-op on this unit. The MWH366/367/381 boards invert this
+(0 = Silence, 1 = Smart), so configs must not be copied between families.
 
 **Setpoint step** is 2 raw units = 1.0 °C. The board will not accept
 half-degree setpoints.
+
+**The three setpoint registers have three different ranges.** HR 2 auto is raw
+84–140 (12–40 °C), HR 3 heating is raw 96–140 (18–40 °C), HR 4 cooling is raw
+84–120 (12–30 °C). A single HA climate entity has one min/max pair, so it
+cannot switch target register by mode and stay in range. The package therefore
+pins its climate entity to heating only, and puts the auto and cooling
+setpoints in scripts with their own bounds. Do not re-add mode switching to
+`target_temp_register` — that is what produced an out-of-range write to HR 4.
 
 **Read-length constraint.** The document says reads must start at a permitted
 first address with count fixed at 48 bits (0x/1x) or 3 registers (3x/4x), or
@@ -82,13 +107,19 @@ stable but wrong, this is the first thing to suspect.
 
 ## Open questions — resolve these on real hardware
 
-1. Confirm the PW11's port in Modbus TCP mode (502 vs its socket port).
-2. Confirm `sensor.pool_hp_heating_setpoint` matches the unit's own display
+1. **Confirm input register 12 (cooling plate) really is temperature type 2.**
+   Highest priority — it is single-sourced, see above. `scan_heatpump.py`
+   prints a dedicated check for it.
+2. Confirm the PW11's port in Modbus TCP mode (502 vs its socket port).
+3. Confirm `sensor.pool_hp_heating_setpoint` matches the unit's own display
    before writing anything.
-3. Confirm gas exhaust temp reads 60–100 °C when running, not ~30 °C below.
-4. Identify which OUT bits correspond to compressor, fan, 4-way valve, and
+4. Confirm gas exhaust temp reads 60–100 °C when running, not ~30 °C below.
+5. Identify which OUT bits correspond to compressor, fan, 4-way valve, and
    circulation pump by observing a run cycle, then rename those entities.
-5. Test whether the read-length constraint is actually enforced.
+6. Test whether the read-length constraint is actually enforced. If it is,
+   note that HR 25 sits outside every permitted block — see "Known
+   ambiguities" in the register map.
+7. Confirm whether Turbo (HR 1 = 3) does anything on this unit.
 
 ## Working rules
 

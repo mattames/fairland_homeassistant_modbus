@@ -927,30 +927,59 @@ modbus:
         # half-degree setpoints.
         temp_step: 1
 
-        # Heating range from the doc: raw 96-140 = 18-40 °C.
+        # HEATING-ONLY ENTITY — deliberate. Read this before "fixing" it.
+        #
+        # min_temp/max_temp are single values for the whole entity, but the
+        # three setpoint registers have three different documented ranges:
+        #
+        #   HR 2  auto     raw  84-140  =  12-40 °C
+        #   HR 3  heating  raw  96-140  =  18-40 °C
+        #   HR 4  cooling  raw  84-120  =  12-30 °C
+        #
+        # An entity that switches target register by mode therefore cannot
+        # have correct bounds in every mode. The previous version pointed
+        # AUTO at HR 2 and COOL at HR 4 while advertising 18-40 °C, so
+        # commanding 35 °C in cooling mode wrote raw 130 to a register the
+        # document caps at 120 — an out-of-range write to a live compressor.
+        #
+        # This entity is now pinned to heating: every slot in
+        # target_temp_register is HR 3, and 18-40 °C is exactly HR 3's
+        # documented range. No reachable UI action can produce an
+        # out-of-range write.
+        #
+        # Auto and cooling setpoints moved to the scripts at the bottom of
+        # this file, which carry their own correct bounds (12-40 and 12-30).
+        # Mode switching moved to pool_hp_set_function.
         min_temp: 18
         max_temp: 40
         scan_interval: 15
 
         # Fixed 7-entry list: AUTO, COOL, DRY, FAN_ONLY, HEAT, HEAT_COOL, OFF.
-        # MWH216: auto = HR 2, cooling = HR 4, heating = HR 3.
-        target_temp_register: [2, 4, 4, 4, 3, 3, 3]
+        # All seven are HR 3 so that no mode can retarget the write.
+        target_temp_register: [3, 3, 3, 3, 3, 3, 3]
         target_temp_write_registers: false
 
         # Power is coil 0.
         hvac_onoff_coil: 0
 
-        # HR 0 Function Selection: 0 = Auto, 1 = Heating, 2 = Cooling
+        # HR 0 Function Selection: 0 = Auto, 1 = Heating, 2 = Cooling.
+        # Only Heating is mapped, so the entity offers heat/off and cannot
+        # move the board into a mode whose setpoint bounds it doesn't honour.
+        # If the unit is put into Auto or Cooling by its own panel or by
+        # pool_hp_set_function, HR 0 reads 0 or 2, which is outside this map
+        # and the entity will report an unknown hvac mode. That is intended:
+        # sensor.pool_hp_operating_mode still shows the true mode.
         hvac_mode_register:
           address: 0
           write_registers: false
           values:
-            state_auto: 0
             state_heat: 1
-            state_cool: 2
 
         # HR 1 Working Mode Selection on MWH216: 0 = Smart, 1 = Silence,
         # 3 = Turbo. Value 2 is NOT defined on this board — don't write it.
+        # The doc qualifies Turbo with "(Some models without Turbo)", so
+        # selecting it may be a no-op on this unit. Check the unit's own
+        # panel follows before relying on it.
         # (The MWH366/367/381 boards use a different mapping: 0 = Silence,
         # 1 = Smart, 2 = Turbo. Don't copy configs between them.)
         fan_mode_register:
@@ -1036,12 +1065,41 @@ template:
 # SCRIPTS — direct register writes
 # =============================================================================
 script:
+  # Mode selection lives here rather than on the climate entity, which is
+  # pinned to heating so its temperature bounds are always correct. HR 0
+  # range is 0-2 per the doc; nothing else is writable here.
+  pool_hp_set_function:
+    alias: "Pool HP: set function (auto / heating / cooling)"
+    fields:
+      function:
+        name: Function
+        description: "0 = Auto, 1 = Heating, 2 = Cooling"
+        required: true
+        selector:
+          select:
+            options:
+              - label: Auto
+                value: "0"
+              - label: Heating
+                value: "1"
+              - label: Cooling
+                value: "2"
+    sequence:
+      - action: modbus.write_register
+        data:
+          hub: fairland_hp
+          slave: 1
+          address: 0
+          value: "{{ function | int }}"
+
   pool_hp_set_working_mode:
     alias: "Pool HP: set working mode"
     fields:
       mode:
         name: Mode
-        description: "0 = Smart, 1 = Silence, 3 = Turbo. Do not send 2."
+        description: >-
+          0 = Smart, 1 = Silence, 3 = Turbo. Do not send 2. The doc notes
+          "some models without Turbo", so 3 may have no effect on this unit.
         required: true
         selector:
           select:
@@ -1060,6 +1118,9 @@ script:
           address: 1
           value: "{{ mode | int }}"
 
+  # Auto and cooling setpoints are script-only. The climate entity is pinned
+  # to heating (HR 3) so that its single min/max pair is always correct; these
+  # two carry their own documented bounds, which differ from heating's.
   pool_hp_set_auto_setpoint:
     alias: "Pool HP: set auto-mode setpoint"
     fields:

@@ -79,7 +79,8 @@ HOLDING_REGISTERS = {
     0: ("Function selection", None, None, 1,
         {0: "Auto", 1: "Heating", 2: "Cooling"}),
     1: ("Working mode selection", None, None, 1,
-        {0: "Smart", 1: "Silence", 2: "UNDEFINED on MWH216", 3: "Turbo"}),
+        {0: "Smart", 1: "Silence", 2: "UNDEFINED on MWH216",
+         3: "Turbo (absent on some models)"}),
     2: ("Auto mode setpoint", None, TYPE_1, 1, None),
     3: ("Heating mode setpoint", None, TYPE_1, 1, None),
     4: ("Cooling mode setpoint", None, TYPE_1, 1, None),
@@ -269,7 +270,8 @@ def format_register(addr: int, raw: int, spec) -> str:
     return line
 
 
-def scan_registers(client, fn_name, table, kwarg, slave, delay, failures):
+def scan_registers(client, fn_name, table, kwarg, slave, delay, failures,
+                   store=None):
     for addr in sorted(table):
         try:
             raw = read_one(client, fn_name, addr, kwarg, slave, delay)
@@ -277,7 +279,71 @@ def scan_registers(client, fn_name, table, kwarg, slave, delay, failures):
             print(f"  {addr:>3}  FAILED: {exc}")
             failures.append((fn_name, addr, str(exc)))
             continue
+        if store is not None:
+            store[addr] = raw
         print(format_register(addr, raw, table[addr]))
+
+
+def priority_check(ir: dict) -> None:
+    """The single most important thing this scan exists to settle.
+
+    Input register 12 (cooling plate) is documented as temperature type 2 by
+    exactly one cell in one document. Nothing corroborates it:
+    protocol_temperature_types.xlsx belongs to the MWH366/367/381 family and
+    does not list the register, and that family's own document leaves its
+    IR 12 unannotated. IR 6 by contrast is marked type 2 in both documents.
+
+    If type 2 is wrong for IR 12, every reading is 30 °C low and still looks
+    plausible — which is exactly the failure the register map warns about.
+    """
+    print()
+    print("=" * 72)
+    print("PRIORITY CHECK — is input register 12 really temperature type 2?")
+    print("=" * 72)
+
+    raw = ir.get(12)
+    if raw is None:
+        print("  IR 12 was not read, so this cannot be checked. Re-run.")
+        return
+
+    t1, t2 = type_1(raw), type_2(raw)
+    print(f"  IR 12 raw = {raw}")
+    print(f"    as type 2 (documented):  {t2:>7.1f} C")
+    print(f"    as type 1 (if the doc is wrong):  {t1:>7.1f} C")
+
+    ambient_raw = ir.get(5)
+    if ambient_raw is None:
+        print("  Ambient (IR 5) unavailable — judge against the real ambient.")
+        return
+
+    ambient = type_1(ambient_raw)
+    print(f"  Ambient (IR 5, type 1) = {ambient:.1f} C  <- reference")
+    print()
+    print("  The cooling plate is the inverter heatsink. It sits at or above")
+    print("  ambient when idle and well above it when the compressor runs.")
+    print("  It is never meaningfully below ambient.")
+    print()
+
+    # Type 1 always reads exactly 30 C below type 2, so this only discriminates
+    # when one of the two lands outside what a heatsink can physically do.
+    # Deliberately a hint, not a verdict: one sample cannot settle it.
+    margin = 2.0
+    if t1 < ambient - margin <= t2:
+        print("  => Type 2 fits. Type 1 would put the heatsink below ambient,")
+        print("     which it cannot be. Consistent with the document.")
+    elif t2 > 100 and t1 >= ambient - margin:
+        print("  => SUSPECT. Type 2 gives an implausibly hot heatsink while")
+        print("     type 1 is plausible. The document may be wrong for this")
+        print("     register — do not trust IR 12 until resolved.")
+    else:
+        print("  => Inconclusive: both readings are physically plausible at")
+        print("     this ambient. Re-run with the compressor running and")
+        print("     loaded — the heatsink should climb well clear of ambient,")
+        print("     which pushes the type-1 reading down towards implausible.")
+    print()
+    print("  If type 1 turns out to be correct, fix all three:")
+    print("    mwh216_register_map.md, fairland_mwh216_modbus.yaml (drop")
+    print("    scale/offset to 0.5/-30 for IR 12), and this script.")
 
 
 def scan_reserved(client, kwarg, slave, delay, failures):
@@ -361,12 +427,14 @@ def main() -> int:
 
     failures: list[tuple[str, int, str]] = []
     surprises: list[int] = []
+    input_values: dict[int, int] = {}
     try:
         kwarg = slave_kwarg(client)
 
         heading("Input registers 0-14 (3x, FC04)")
         scan_registers(client, "read_input_registers", INPUT_REGISTERS,
-                       kwarg, args.slave, args.delay, failures)
+                       kwarg, args.slave, args.delay, failures,
+                       store=input_values)
 
         heading("Input registers 15-20 — documented Reserved on MWH216")
         surprises = scan_reserved(client, kwarg, args.slave, args.delay, failures)
@@ -379,6 +447,8 @@ def main() -> int:
         scan_discrete(client, kwarg, args.slave, args.delay, failures)
     finally:
         client.close()
+
+    priority_check(input_values)
 
     heading("Summary")
     if surprises:
@@ -397,9 +467,12 @@ def main() -> int:
 
     print()
     print("  Sanity checks before trusting these values:")
+    print("   - IR 12 cooling plate: see the PRIORITY CHECK above. Single-sourced.")
     print("   - gas exhaust (IR 6) should read 60-100 C when running, not ~30 C low")
     print("   - heating setpoint (HR 3) should match the unit's own display")
     print("   - if values are stable but wrong, suspect the fixed read-length rule")
+    print("   - HR 25 sits outside every permitted block read; if the read-length")
+    print("     rule is enforced, it cannot be read compliantly at all")
     return 0
 
 

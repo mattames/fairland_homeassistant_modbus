@@ -75,7 +75,7 @@ states through a run cycle.
 | Addr | Content | Range | Step | Default | Notes |
 |---|---|---|---|---|---|
 | 0 | Function selection | 0–2 | 1 | 1 | 0 = Auto, 1 = Heating, 2 = Cooling |
-| 1 | Working mode selection | 0–3 | 1 | 1 | 0 = Smart, 1 = Silence, 3 = Turbo. **2 undefined** |
+| 1 | Working mode selection | 0–3 | 1 | 1 | 0 = Smart, 1 = Silence, 3 = Turbo. **2 undefined.** Source adds "(Some models without Turbo)" — 3 may be a no-op |
 | 2 | Auto mode setpoint | 84–140 | 2 | 112 | Type 1 → 12–40 °C, default 26 |
 | 3 | Heating mode setpoint | 96–140 | 2 | 112 | Type 1 → 18–40 °C, default 26 |
 | 4 | Cooling mode setpoint | 84–120 | 2 | 112 | Type 1 → 12–30 °C, default 26 |
@@ -130,15 +130,67 @@ silent rather than loud.
 |---|---|---|
 | HR 1 semantics | Working mode: 0 Smart, 1 Silence, 3 Turbo | Fan speed: 0 Silence, 1 Smart, 2 Turbo |
 | Slave address | Fixed at 1 | Settable via 4x register 200, range 1–16 |
-| Water pump status bit | Not present | DI 31 |
+| Water pump status bit | Not present | **DI 20** |
 | Input registers 15+ | Reserved | Reserved |
 | Extra holding registers | — | Fixed-speed ratio (P6), EEV manual mode and opening, intermediate frequency ratio, 2nd fan control, fan speed P19 |
 | 3x/4x read length | Fixed at 3 | Max 8 |
+| 3x/4x **first address** | Restricted to 0, 3, 6, 9, 12 (and 15, 18 for 4x) | **Unrestricted** — any start address |
 | 1x/0x read length | Fixed at 48 | Max 48, first address 0 or 48 |
 
 The two families invert the meaning of 0 and 1 in the mode register. A config
 copied across would select Silence when asking for Smart, and vice versa —
 with no error.
+
+The first-address row matters as much as the length row. MWH381 states only a
+maximum consecutive-read count and no restriction on where a read starts, so a
+polling scheme written for that family is legal there and violates the MWH216
+rule. The documented symptom is silently incorrect data, not an error.
+
+## Known ambiguities in the source document
+
+Two things the manufacturer document does not settle. Both are recorded here
+so they are not silently resolved by someone later assuming the map is
+complete. **Do not remove this section without hardware evidence.**
+
+### 1. Whether address 0 is a permitted first address
+
+The read-length table above lists 0 as a permitted first address for 1x, 3x
+and 4x. That is an **inference from the sheet's layout, not a transcription.**
+
+In the source, "Reads allowed as first address" is a column-A marker cell. It
+appears on each section's header row and then on specific data rows — 48 for
+1x; 3, 6, 9, 12 for 3x; 3, 6, 9, 12, 15, 18 for 4x. Address 0 is never marked
+on its own data row in any table, and there are no merged cells tying a
+header-row marker to the row beneath it.
+
+Read strictly, address 0 would not be permitted — which cannot be right, since
+it would make coils 0–47, discrete inputs 0–47 and input registers 0–2
+(compressor speed, target frequency, PFC voltage) unreachable. Two things
+support reading 0 as permitted:
+
+- The block arithmetic only closes if it is. 3x from 0/3/6/9/12 at 3 registers
+  each covers exactly 0–14, the full populated range. 0x from 0 at 48 bits
+  covers exactly 0–47. 1x from 0 and 48 covers exactly 0–95.
+- The sibling MWH381 document states the equivalent rule in prose: "the first
+  address of the read must be 0 or 48".
+
+Treated as settled enough to act on, but it is an inference. The 0x table is
+included on the same basis — the source carries the marker column there but
+marks no data row at all, so 0x → 0 only.
+
+### 2. Holding register 25 is unreachable under the document's own read rule
+
+Permitted 4x first addresses stop at 18, and the count is fixed at 3. The
+reachable blocks are therefore [0–2], [3–5], [6–8], [9–11], [12–14], [15–17],
+[18–20] — ending at register 20.
+
+**HR 25 (power-off restart memory) falls outside every permitted block.** No
+marker at 21 or 24 would let a compliant read reach it. The document defines a
+register its own read rule cannot address.
+
+This only bites if the read-length constraint turns out to be enforced on real
+firmware. If it is, HR 25 cannot be read compliantly at all, and the block-read
+fallback described in the HA package will not cover it.
 
 ## Sources
 
