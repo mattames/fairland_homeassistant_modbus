@@ -1,9 +1,9 @@
 # Hardware photos — this unit
 
 Photographs of the owner's actual heat pump control compartment and the
-Protoss PW11 gateway install, taken 2026-08-12. These are **primary evidence
-for this specific unit** and, where they show silkscreen or a factory plate,
-they outrank the generic Peraqua family documents for questions about *this*
+Protoss PW11 gateway install. These are **primary evidence for this 
+specific unit** and, where they show silkscreen or a factory plate, they
+outrank the generic Peraqua family documents for questions about *this*
 board.
 
 Unit identity confirmed by these photos: control board **MWH216-V3
