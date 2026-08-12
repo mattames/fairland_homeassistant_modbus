@@ -1,0 +1,1123 @@
+# =============================================================================
+# Fairland MWH216 control board — Home Assistant Modbus package
+# AES-rebadged pool heat pump, via Protoss PW11 gateway
+# =============================================================================
+#
+# Register map source: Fairland "Modbus Wärmepumpe MWH216 & MWH298" protocol
+# document. This is the map for THIS board, not a sibling. Anything that
+# appears in maps for MWH366/367/381 and not here has been left out.
+#
+# LINK SETTINGS (from the doc):
+#   RS485, Modbus RTU, 9600, 1 start + 8 data + 1 stop, no parity
+#   Slave address fixed at 1 (MWH216 has no slave-number register)
+#   At least 60 ms between transactions
+#
+# TWO TEMPERATURE ENCODINGS — this board uses both. Getting them mixed up
+# gives readings that look plausible but are 30 °C out.
+#
+#   Type 1:  °C = (raw - 60) / 2     ->  scale: 0.5, offset: -30
+#            Used by: water inlet/outlet, ambient, outer coil, gas return,
+#            inner coil, all setpoints, defrost temps, EEV superheat.
+#
+#   Type 2:  °C = raw / 2            ->  scale: 0.5, NO offset
+#            Used by: gas exhaust temp (IR 6) and cooling plate temp (IR 12)
+#            ONLY. These run hot (60-100 °C), which is why they need the
+#            wider unsigned range.
+#
+# READ-LENGTH CONSTRAINT — important, and stricter on this board than on the
+# MWH366/367/381 family. The doc states reads must begin at a permitted first
+# address, with the count fixed at 48 bits for 0x/1x and 3 registers for
+# 3x/4x, "otherwise the slave may return incorrect data".
+#   Permitted first addresses:  1x -> 0, 48
+#                               4x -> 0, 3, 6, 9, 12, 15, 18
+#                               3x -> 0, 3, 6, 9, 12
+# This config uses single-register reads, as every working community Fairland
+# config does. If you see values that are stable but wrong, or that look like
+# a neighbouring register, that constraint is being enforced on your firmware
+# — see the BLOCK READ FALLBACK note near the fault sensors.
+#
+# DO NOT WRITE COIL 2. It is "Restore factory values" on this board.
+#
+# INSTALL
+#   1. Save as <config>/packages/fairland_mwh216_modbus.yaml
+#   2. configuration.yaml:
+#          homeassistant:
+#            packages: !include_dir_named packages
+#   3. Set the PW11's IP and port below.
+#   4. Developer Tools > YAML > Check configuration, then restart.
+#
+# FIRST-RUN VERIFICATION (there are no version/model registers on this board,
+# so this is how you confirm the map):
+#   a) sensor.pool_hp_heating_setpoint must match the unit's own display.
+#   b) sensor.pool_hp_water_inlet_temperature must be a plausible pool temp.
+#   c) sensor.pool_hp_gas_exhaust_temperature should read far higher than the
+#      water temps when running (typically 60-100 °C). If it reads about 30 °C
+#      below where it should, the type-2 encoding is wrong for your firmware.
+#   Do not write anything until (a) is confirmed.
+# =============================================================================
+
+modbus:
+  - name: fairland_hp
+    # Protoss PW11 with Modbus TCP <-> RTU conversion enabled.
+    # The gateway parses each request, adds the CRC and handles RTU framing,
+    # and serialises requests from multiple clients onto the one RS485 bus —
+    # which is what lets HA poll while you run a pymodbus scan.
+    type: tcp
+    host: 192.168.1.200        # <-- CHANGE ME
+    port: 502                  # <-- VERIFY. 502 is standard for Modbus TCP,
+                               #     but the PW11 may keep its socket port.
+    delay: 5
+    timeout: 10                # generous: this is WiFi
+    message_wait_milliseconds: 60
+
+    # --- If you revert the PW11 to transparent TCP Server mode ---------------
+    # type: rtuovertcp
+    # host: 192.168.1.200
+    # port: 8899
+    #
+    # Either way: disable the PW11's heartbeat and registration packets, and
+    # leave its own Modbus Master polling off.
+
+    # =========================================================================
+    # DISCRETE INPUTS (1x) — read-only, FC02
+    # =========================================================================
+    # NOTE: on MWH216 the I/O bits are generic — the doc names them DIN1-5 and
+    # OUT1-9 with no indication of what each is wired to. (The named versions
+    # you'll find in other Fairland configs come from different boards.) To
+    # identify them, watch the states while the unit cycles: one OUT will
+    # follow the compressor, one the fan, one the 4-way valve during defrost.
+    # Rename them once you know.
+    binary_sensors:
+      - name: "Pool HP Running"
+        unique_id: fairland_hp_di_00_onoff
+        device_address: 1
+        address: 0
+        input_type: discrete_input
+        device_class: running
+        scan_interval: 10
+
+      - name: "Pool HP Defrosting"
+        unique_id: fairland_hp_di_01_defrosting
+        device_address: 1
+        address: 1
+        input_type: discrete_input
+        scan_interval: 15
+
+      - name: "Pool HP DIN1"
+        unique_id: fairland_hp_di_02_din1
+        device_address: 1
+        address: 2
+        input_type: discrete_input
+        scan_interval: 30
+
+      - name: "Pool HP DIN2"
+        unique_id: fairland_hp_di_03_din2
+        device_address: 1
+        address: 3
+        input_type: discrete_input
+        scan_interval: 30
+
+      - name: "Pool HP DIN3"
+        unique_id: fairland_hp_di_04_din3
+        device_address: 1
+        address: 4
+        input_type: discrete_input
+        scan_interval: 30
+
+      - name: "Pool HP DIN4"
+        unique_id: fairland_hp_di_05_din4
+        device_address: 1
+        address: 5
+        input_type: discrete_input
+        scan_interval: 30
+
+      - name: "Pool HP DIN5"
+        unique_id: fairland_hp_di_06_din5
+        device_address: 1
+        address: 6
+        input_type: discrete_input
+        scan_interval: 30
+
+      - name: "Pool HP OUT1"
+        unique_id: fairland_hp_di_07_out1
+        device_address: 1
+        address: 7
+        input_type: discrete_input
+        scan_interval: 15
+
+      - name: "Pool HP OUT2"
+        unique_id: fairland_hp_di_08_out2
+        device_address: 1
+        address: 8
+        input_type: discrete_input
+        scan_interval: 15
+
+      - name: "Pool HP OUT3"
+        unique_id: fairland_hp_di_09_out3
+        device_address: 1
+        address: 9
+        input_type: discrete_input
+        scan_interval: 15
+
+      - name: "Pool HP OUT4"
+        unique_id: fairland_hp_di_10_out4
+        device_address: 1
+        address: 10
+        input_type: discrete_input
+        scan_interval: 30
+
+      - name: "Pool HP OUT5"
+        unique_id: fairland_hp_di_11_out5
+        device_address: 1
+        address: 11
+        input_type: discrete_input
+        scan_interval: 30
+
+      - name: "Pool HP OUT6"
+        unique_id: fairland_hp_di_12_out6
+        device_address: 1
+        address: 12
+        input_type: discrete_input
+        scan_interval: 30
+
+      - name: "Pool HP OUT7"
+        unique_id: fairland_hp_di_13_out7
+        device_address: 1
+        address: 13
+        input_type: discrete_input
+        scan_interval: 30
+
+      - name: "Pool HP OUT8"
+        unique_id: fairland_hp_di_14_out8
+        device_address: 1
+        address: 14
+        input_type: discrete_input
+        scan_interval: 30
+
+      - name: "Pool HP OUT9"
+        unique_id: fairland_hp_di_15_out9
+        device_address: 1
+        address: 15
+        input_type: discrete_input
+        scan_interval: 30
+
+      - name: "Pool HP Malfunction Indicator"
+        unique_id: fairland_hp_di_16_malfunction
+        device_address: 1
+        address: 16
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 15
+
+      - name: "Pool HP Compressor Demand"
+        unique_id: fairland_hp_di_17_comp_demand
+        device_address: 1
+        address: 17
+        input_type: discrete_input
+        scan_interval: 15
+
+      # --- Fault flags --------------------------------------------------
+      # MWH216 layout: E0-E9 (48-57), EA (58), Eb (59), 60 reserved, Ed (61),
+      # 62-63 reserved, P0-P9 (64-73), PA (74), 75-79 reserved,
+      # F0-F9 (80-89), FA (90), Fb (91), 92-95 reserved.
+      # Reserved addresses are deliberately not read.
+      #
+      # BLOCK READ FALLBACK: if single-bit reads return bad data, the doc's
+      # prescribed read is 48 bits starting at address 48, which covers this
+      # entire range in one request. Replace every entry below with:
+      #   - name: "Pool HP Fault Bits"
+      #     unique_id: fairland_hp_di_48_block
+      #     device_address: 1
+      #     address: 48
+      #     input_type: discrete_input
+      #     virtual_count: 47
+      #     scan_interval: 30
+      # That yields "Pool HP Fault Bits" plus _1.._47, in address order from
+      # 48, so _3 is E3, _16 is P0, _32 is F0.
+      - name: "Pool HP Fault E0"
+        unique_id: fairland_hp_di_48_e0
+        device_address: 1
+        address: 48
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault E1"
+        unique_id: fairland_hp_di_49_e1
+        device_address: 1
+        address: 49
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault E2"
+        unique_id: fairland_hp_di_50_e2
+        device_address: 1
+        address: 50
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault E3"
+        unique_id: fairland_hp_di_51_e3
+        device_address: 1
+        address: 51
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault E4"
+        unique_id: fairland_hp_di_52_e4
+        device_address: 1
+        address: 52
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault E5"
+        unique_id: fairland_hp_di_53_e5
+        device_address: 1
+        address: 53
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault E6"
+        unique_id: fairland_hp_di_54_e6
+        device_address: 1
+        address: 54
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault E7"
+        unique_id: fairland_hp_di_55_e7
+        device_address: 1
+        address: 55
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault E8"
+        unique_id: fairland_hp_di_56_e8
+        device_address: 1
+        address: 56
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault E9"
+        unique_id: fairland_hp_di_57_e9
+        device_address: 1
+        address: 57
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault EA"
+        unique_id: fairland_hp_di_58_ea
+        device_address: 1
+        address: 58
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault Eb"
+        unique_id: fairland_hp_di_59_eb
+        device_address: 1
+        address: 59
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault Ed"
+        unique_id: fairland_hp_di_61_ed
+        device_address: 1
+        address: 61
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault P0"
+        unique_id: fairland_hp_di_64_p0
+        device_address: 1
+        address: 64
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault P1"
+        unique_id: fairland_hp_di_65_p1
+        device_address: 1
+        address: 65
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault P2"
+        unique_id: fairland_hp_di_66_p2
+        device_address: 1
+        address: 66
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault P3"
+        unique_id: fairland_hp_di_67_p3
+        device_address: 1
+        address: 67
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault P4"
+        unique_id: fairland_hp_di_68_p4
+        device_address: 1
+        address: 68
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault P5"
+        unique_id: fairland_hp_di_69_p5
+        device_address: 1
+        address: 69
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault P6"
+        unique_id: fairland_hp_di_70_p6
+        device_address: 1
+        address: 70
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault P7"
+        unique_id: fairland_hp_di_71_p7
+        device_address: 1
+        address: 71
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault P8"
+        unique_id: fairland_hp_di_72_p8
+        device_address: 1
+        address: 72
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault P9"
+        unique_id: fairland_hp_di_73_p9
+        device_address: 1
+        address: 73
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault PA"
+        unique_id: fairland_hp_di_74_pa
+        device_address: 1
+        address: 74
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault F0"
+        unique_id: fairland_hp_di_80_f0
+        device_address: 1
+        address: 80
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault F1"
+        unique_id: fairland_hp_di_81_f1
+        device_address: 1
+        address: 81
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault F2"
+        unique_id: fairland_hp_di_82_f2
+        device_address: 1
+        address: 82
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault F3"
+        unique_id: fairland_hp_di_83_f3
+        device_address: 1
+        address: 83
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault F4"
+        unique_id: fairland_hp_di_84_f4
+        device_address: 1
+        address: 84
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault F5"
+        unique_id: fairland_hp_di_85_f5
+        device_address: 1
+        address: 85
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault F6"
+        unique_id: fairland_hp_di_86_f6
+        device_address: 1
+        address: 86
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault F7"
+        unique_id: fairland_hp_di_87_f7
+        device_address: 1
+        address: 87
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault F8"
+        unique_id: fairland_hp_di_88_f8
+        device_address: 1
+        address: 88
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault F9"
+        unique_id: fairland_hp_di_89_f9
+        device_address: 1
+        address: 89
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault FA"
+        unique_id: fairland_hp_di_90_fa
+        device_address: 1
+        address: 90
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+      - name: "Pool HP Fault Fb"
+        unique_id: fairland_hp_di_91_fb
+        device_address: 1
+        address: 91
+        input_type: discrete_input
+        device_class: problem
+        scan_interval: 30
+
+    # =========================================================================
+    # COILS (0x) — read/write, FC01 read / FC05 write
+    # =========================================================================
+    # Coil 2 (Restore factory values) is deliberately absent. Do not add it.
+    switches:
+      - name: "Pool HP Power"
+        unique_id: fairland_hp_coil_00_power
+        device_address: 1
+        address: 0
+        write_type: coil
+        command_on: 1
+        command_off: 0
+        verify:
+          input_type: coil
+          address: 0
+          delay: 2
+          state_on: 1
+          state_off: 0
+
+      - name: "Pool HP Force Defrost"
+        unique_id: fairland_hp_coil_01_force_defrost
+        device_address: 1
+        address: 1
+        write_type: coil
+        command_on: 1
+        command_off: 0
+        verify:
+          input_type: coil
+          address: 1
+          delay: 2
+          state_on: 1
+          state_off: 0
+
+    # =========================================================================
+    # SENSORS
+    # =========================================================================
+    sensors:
+      # --- Input registers 0-14 (3x, FC04). 15-29 are Reserved on MWH216 -----
+      - name: "Pool HP Compressor Speed"
+        unique_id: fairland_hp_ir_00_speed_pct
+        device_address: 1
+        address: 0
+        input_type: input
+        data_type: int16
+        unit_of_measurement: "%"
+        state_class: measurement
+        scan_interval: 15
+
+      - name: "Pool HP Compressor Target Frequency"
+        unique_id: fairland_hp_ir_01_target_freq
+        device_address: 1
+        address: 1
+        input_type: input
+        data_type: int16
+        unit_of_measurement: "Hz"
+        state_class: measurement
+        scan_interval: 30
+
+      - name: "Pool HP PFC Voltage"
+        unique_id: fairland_hp_ir_02_pfc_voltage
+        device_address: 1
+        address: 2
+        input_type: input
+        data_type: int16
+        device_class: voltage
+        unit_of_measurement: "V"
+        state_class: measurement
+        scan_interval: 30
+
+      # Type 1
+      - name: "Pool HP Water Inlet Temperature"
+        unique_id: fairland_hp_ir_03_inlet_temp
+        device_address: 1
+        address: 3
+        input_type: input
+        data_type: int16
+        scale: 0.5
+        offset: -30
+        precision: 1
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state_class: measurement
+        scan_interval: 10
+
+      # Type 1
+      - name: "Pool HP Water Outlet Temperature"
+        unique_id: fairland_hp_ir_04_outlet_temp
+        device_address: 1
+        address: 4
+        input_type: input
+        data_type: int16
+        scale: 0.5
+        offset: -30
+        precision: 1
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state_class: measurement
+        scan_interval: 10
+
+      # Type 1
+      - name: "Pool HP Ambient Temperature"
+        unique_id: fairland_hp_ir_05_ambient_temp
+        device_address: 1
+        address: 5
+        input_type: input
+        data_type: int16
+        scale: 0.5
+        offset: -30
+        precision: 1
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state_class: measurement
+        scan_interval: 60
+
+      # TYPE 2 — no offset. Compressor discharge, runs 60-100 °C.
+      - name: "Pool HP Gas Exhaust Temperature"
+        unique_id: fairland_hp_ir_06_gas_exhaust_temp
+        device_address: 1
+        address: 6
+        input_type: input
+        data_type: int16
+        scale: 0.5
+        precision: 1
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state_class: measurement
+        scan_interval: 30
+
+      # Type 1
+      - name: "Pool HP Outer Coil Temperature"
+        unique_id: fairland_hp_ir_07_outer_coil_temp
+        device_address: 1
+        address: 7
+        input_type: input
+        data_type: int16
+        scale: 0.5
+        offset: -30
+        precision: 1
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state_class: measurement
+        scan_interval: 30
+
+      # Type 1
+      - name: "Pool HP Gas Return Temperature"
+        unique_id: fairland_hp_ir_08_gas_return_temp
+        device_address: 1
+        address: 8
+        input_type: input
+        data_type: int16
+        scale: 0.5
+        offset: -30
+        precision: 1
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state_class: measurement
+        scan_interval: 30
+
+      # Type 1 — titanium heat exchanger
+      - name: "Pool HP Inner Coil Temperature"
+        unique_id: fairland_hp_ir_09_inner_coil_temp
+        device_address: 1
+        address: 9
+        input_type: input
+        data_type: int16
+        scale: 0.5
+        offset: -30
+        precision: 1
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state_class: measurement
+        scan_interval: 30
+
+      - name: "Pool HP Compressor Frequency"
+        unique_id: fairland_hp_ir_10_run_freq
+        device_address: 1
+        address: 10
+        input_type: input
+        data_type: int16
+        unit_of_measurement: "Hz"
+        state_class: measurement
+        scan_interval: 15
+
+      - name: "Pool HP Compressor Current"
+        unique_id: fairland_hp_ir_11_compressor_current
+        device_address: 1
+        address: 11
+        input_type: input
+        data_type: int16
+        scale: 0.1
+        precision: 1
+        device_class: current
+        unit_of_measurement: "A"
+        state_class: measurement
+        scan_interval: 15
+
+      # TYPE 2 — no offset. Inverter cooling plate.
+      - name: "Pool HP Cooling Plate Temperature"
+        unique_id: fairland_hp_ir_12_cooling_plate_temp
+        device_address: 1
+        address: 12
+        input_type: input
+        data_type: int16
+        scale: 0.5
+        precision: 1
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state_class: measurement
+        scan_interval: 30
+
+      - name: "Pool HP EEV Opening"
+        unique_id: fairland_hp_ir_13_eev_opening
+        device_address: 1
+        address: 13
+        input_type: input
+        data_type: int16
+        state_class: measurement
+        scan_interval: 30
+
+      - name: "Pool HP DC Fan Speed"
+        unique_id: fairland_hp_ir_14_fan_speed
+        device_address: 1
+        address: 14
+        input_type: input
+        data_type: int16
+        unit_of_measurement: "rpm"
+        state_class: measurement
+        scan_interval: 30
+
+      # --- Holding registers (4x, FC03) surfaced read-only -------------------
+      - name: "Pool HP Function Selection Raw"
+        unique_id: fairland_hp_hr_00_function
+        device_address: 1
+        address: 0
+        input_type: holding
+        data_type: int16
+        scan_interval: 30
+
+      - name: "Pool HP Working Mode Raw"
+        unique_id: fairland_hp_hr_01_working_mode
+        device_address: 1
+        address: 1
+        input_type: holding
+        data_type: int16
+        scan_interval: 30
+
+      - name: "Pool HP Auto Setpoint"
+        unique_id: fairland_hp_hr_02_auto_setpoint
+        device_address: 1
+        address: 2
+        input_type: holding
+        data_type: int16
+        scale: 0.5
+        offset: -30
+        precision: 1
+        device_class: temperature
+        unit_of_measurement: "°C"
+        scan_interval: 30
+
+      - name: "Pool HP Heating Setpoint"
+        unique_id: fairland_hp_hr_03_heat_setpoint
+        device_address: 1
+        address: 3
+        input_type: holding
+        data_type: int16
+        scale: 0.5
+        offset: -30
+        precision: 1
+        device_class: temperature
+        unit_of_measurement: "°C"
+        scan_interval: 30
+
+      - name: "Pool HP Cooling Setpoint"
+        unique_id: fairland_hp_hr_04_cool_setpoint
+        device_address: 1
+        address: 4
+        input_type: holding
+        data_type: int16
+        scale: 0.5
+        offset: -30
+        precision: 1
+        device_class: temperature
+        unit_of_measurement: "°C"
+        scan_interval: 30
+
+      - name: "Pool HP Water Pump Mode Raw"
+        unique_id: fairland_hp_hr_05_pump_mode
+        device_address: 1
+        address: 5
+        input_type: holding
+        data_type: int16
+        scan_interval: 300
+
+      - name: "Pool HP Water Pump Run Time"
+        unique_id: fairland_hp_hr_06_pump_time
+        device_address: 1
+        address: 6
+        input_type: holding
+        data_type: int16
+        unit_of_measurement: "min"
+        scan_interval: 300
+
+      - name: "Pool HP Compressor Run Time Between Defrost"
+        unique_id: fairland_hp_hr_07_comp_run_time
+        device_address: 1
+        address: 7
+        input_type: holding
+        data_type: int16
+        unit_of_measurement: "min"
+        scan_interval: 3600
+
+      # Type 1 — NOT plain °C. Default raw 46 = -7 °C.
+      - name: "Pool HP Defrost Entry Temperature"
+        unique_id: fairland_hp_hr_08_defrost_entry
+        device_address: 1
+        address: 8
+        input_type: holding
+        data_type: int16
+        scale: 0.5
+        offset: -30
+        precision: 1
+        device_class: temperature
+        unit_of_measurement: "°C"
+        scan_interval: 3600
+
+      - name: "Pool HP Max Defrost Run Time"
+        unique_id: fairland_hp_hr_09_max_defrost_time
+        device_address: 1
+        address: 9
+        input_type: holding
+        data_type: int16
+        unit_of_measurement: "min"
+        scan_interval: 3600
+
+      # Type 1 — default raw 86 = 13 °C.
+      - name: "Pool HP Defrost Exit Temperature"
+        unique_id: fairland_hp_hr_10_defrost_exit
+        device_address: 1
+        address: 10
+        input_type: holding
+        data_type: int16
+        scale: 0.5
+        offset: -30
+        precision: 1
+        device_class: temperature
+        unit_of_measurement: "°C"
+        scan_interval: 3600
+
+      # Type 1 — default raw 66 = 3 °C.
+      - name: "Pool HP EEV Superheat Heating"
+        unique_id: fairland_hp_hr_17_eev_superheat_heat
+        device_address: 1
+        address: 17
+        input_type: holding
+        data_type: int16
+        scale: 0.5
+        offset: -30
+        precision: 1
+        device_class: temperature
+        unit_of_measurement: "°C"
+        scan_interval: 3600
+
+      # Type 1 — default raw 64 = 2 °C.
+      - name: "Pool HP EEV Superheat Cooling"
+        unique_id: fairland_hp_hr_18_eev_superheat_cool
+        device_address: 1
+        address: 18
+        input_type: holding
+        data_type: int16
+        scale: 0.5
+        offset: -30
+        precision: 1
+        device_class: temperature
+        unit_of_measurement: "°C"
+        scan_interval: 3600
+
+      - name: "Pool HP Power-off Restart Memory"
+        unique_id: fairland_hp_hr_25_restart_memory
+        device_address: 1
+        address: 25
+        input_type: holding
+        data_type: int16
+        scan_interval: 3600
+
+    # =========================================================================
+    # CLIMATE
+    # =========================================================================
+    climates:
+      - name: "Pool Heat Pump"
+        unique_id: fairland_hp_climate
+        device_address: 1
+
+        # Current temperature: input register 3, water inlet (type 1).
+        address: 3
+        input_type: input
+        data_type: int16
+        scale: 0.5
+        offset: -30
+        precision: 1
+        temperature_unit: C
+
+        # Raw step is 2, and 2 raw = 1.0 °C, so the board cannot accept
+        # half-degree setpoints.
+        temp_step: 1
+
+        # Heating range from the doc: raw 96-140 = 18-40 °C.
+        min_temp: 18
+        max_temp: 40
+        scan_interval: 15
+
+        # Fixed 7-entry list: AUTO, COOL, DRY, FAN_ONLY, HEAT, HEAT_COOL, OFF.
+        # MWH216: auto = HR 2, cooling = HR 4, heating = HR 3.
+        target_temp_register: [2, 4, 4, 4, 3, 3, 3]
+        target_temp_write_registers: false
+
+        # Power is coil 0.
+        hvac_onoff_coil: 0
+
+        # HR 0 Function Selection: 0 = Auto, 1 = Heating, 2 = Cooling
+        hvac_mode_register:
+          address: 0
+          write_registers: false
+          values:
+            state_auto: 0
+            state_heat: 1
+            state_cool: 2
+
+        # HR 1 Working Mode Selection on MWH216: 0 = Smart, 1 = Silence,
+        # 3 = Turbo. Value 2 is NOT defined on this board — don't write it.
+        # (The MWH366/367/381 boards use a different mapping: 0 = Silence,
+        # 1 = Smart, 2 = Turbo. Don't copy configs between them.)
+        fan_mode_register:
+          address: 1
+          values:
+            state_fan_high: 0      # Smart
+            state_fan_low: 1       # Silence
+            state_fan_focus: 3     # Turbo
+
+# =============================================================================
+# DERIVED SENSORS
+# =============================================================================
+template:
+  - sensor:
+      - name: "Pool HP Delta T"
+        unique_id: fairland_hp_delta_t
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        availability: >
+          {{ has_value('sensor.pool_hp_water_outlet_temperature')
+             and has_value('sensor.pool_hp_water_inlet_temperature') }}
+        state: >
+          {{ (states('sensor.pool_hp_water_outlet_temperature') | float
+              - states('sensor.pool_hp_water_inlet_temperature') | float)
+             | round(2) }}
+
+      # Thermal output = flow (L/s) x 4.18 kJ/kg.K x deltaT.
+      # Only as good as the flow figure — measure it, don't use the nameplate.
+      - name: "Pool HP Thermal Output"
+        unique_id: fairland_hp_thermal_output
+        unit_of_measurement: "kW"
+        device_class: power
+        state_class: measurement
+        availability: "{{ has_value('sensor.pool_hp_delta_t') }}"
+        state: >
+          {% set flow_lpm = 300 %}
+          {% set dt = states('sensor.pool_hp_delta_t') | float(0) %}
+          {% if is_state('binary_sensor.pool_hp_compressor_demand', 'on') %}
+            {{ ((flow_lpm / 60) * 4.18 * dt) | round(2) }}
+          {% else %}
+            0
+          {% endif %}
+
+      - name: "Pool HP Working Mode"
+        unique_id: fairland_hp_working_mode_text
+        icon: mdi:volume-medium
+        availability: "{{ has_value('sensor.pool_hp_working_mode_raw') }}"
+        state: >
+          {% set m = states('sensor.pool_hp_working_mode_raw') | int(-1) %}
+          {{ {0: 'Smart', 1: 'Silence', 3: 'Turbo'}.get(m, 'Unknown') }}
+
+      - name: "Pool HP Operating Mode"
+        unique_id: fairland_hp_function_text
+        icon: mdi:sun-snowflake-variant
+        availability: "{{ has_value('sensor.pool_hp_function_selection_raw') }}"
+        state: >
+          {% set m = states('sensor.pool_hp_function_selection_raw') | int(-1) %}
+          {{ {0: 'Auto', 1: 'Heating', 2: 'Cooling'}.get(m, 'Unknown') }}
+
+      - name: "Pool HP Water Pump Mode"
+        unique_id: fairland_hp_pump_mode_text
+        icon: mdi:pump
+        availability: "{{ has_value('sensor.pool_hp_water_pump_mode_raw') }}"
+        state: >
+          {% set m = states('sensor.pool_hp_water_pump_mode_raw') | int(-1) %}
+          {{ {0: 'Continuous', 1: 'Water temp control',
+              2: 'Time / water temp control'}.get(m, 'Unknown') }}
+
+      - name: "Pool HP Active Faults"
+        unique_id: fairland_hp_active_faults
+        icon: mdi:alert-circle-outline
+        state: >
+          {% set ns = namespace(faults=[]) %}
+          {% for e in states.binary_sensor
+             if e.entity_id.startswith('binary_sensor.pool_hp_fault_')
+             and e.state == 'on' %}
+            {% set ns.faults = ns.faults + [e.name | replace('Pool HP Fault ', '')] %}
+          {% endfor %}
+          {{ ns.faults | join(', ') if ns.faults else 'None' }}
+
+# =============================================================================
+# SCRIPTS — direct register writes
+# =============================================================================
+script:
+  pool_hp_set_working_mode:
+    alias: "Pool HP: set working mode"
+    fields:
+      mode:
+        name: Mode
+        description: "0 = Smart, 1 = Silence, 3 = Turbo. Do not send 2."
+        required: true
+        selector:
+          select:
+            options:
+              - label: Smart
+                value: "0"
+              - label: Silence
+                value: "1"
+              - label: Turbo
+                value: "3"
+    sequence:
+      - action: modbus.write_register
+        data:
+          hub: fairland_hp
+          slave: 1
+          address: 1
+          value: "{{ mode | int }}"
+
+  pool_hp_set_auto_setpoint:
+    alias: "Pool HP: set auto-mode setpoint"
+    fields:
+      temperature:
+        name: Temperature
+        description: "12 to 40 °C, whole degrees"
+        required: true
+        selector:
+          number:
+            min: 12
+            max: 40
+            step: 1
+            unit_of_measurement: "°C"
+    sequence:
+      - action: modbus.write_register
+        data:
+          hub: fairland_hp
+          slave: 1
+          address: 2
+          value: "{{ ((temperature | float * 2) + 60) | round(0) | int }}"
+
+  pool_hp_set_cooling_setpoint:
+    alias: "Pool HP: set cooling setpoint"
+    fields:
+      temperature:
+        name: Temperature
+        description: "12 to 30 °C, whole degrees"
+        required: true
+        selector:
+          number:
+            min: 12
+            max: 30
+            step: 1
+            unit_of_measurement: "°C"
+    sequence:
+      - action: modbus.write_register
+        data:
+          hub: fairland_hp
+          slave: 1
+          address: 4
+          value: "{{ ((temperature | float * 2) + 60) | round(0) | int }}"
+
+  pool_hp_set_water_pump_mode:
+    alias: "Pool HP: set water pump mode"
+    fields:
+      mode:
+        name: Mode
+        description: "0 = continuous, 1 = water temp control, 2 = time + water temp"
+        required: true
+        selector:
+          number:
+            min: 0
+            max: 2
+            mode: box
+    sequence:
+      - action: modbus.write_register
+        data:
+          hub: fairland_hp
+          slave: 1
+          address: 5
+          value: "{{ mode | int }}"
