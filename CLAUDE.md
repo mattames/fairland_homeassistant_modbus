@@ -14,10 +14,33 @@
 
 ## Files in this repo
 
+Written here:
+
 - `fairland_mwh216_modbus.yaml` — the HA package. Goes in
   `<config>/packages/`. Validated against the HA Modbus schema at 2026.8.1.
 - `mwh216_register_map.md` — register map transcribed from the manufacturer
   document, plus the differences between board families.
+
+Source documents — these are the authority, the two files above are derived
+from them:
+
+- `protocol_MWH216_MWH298.xlsx` — the manufacturer protocol document for
+  **this** board. The one to check when a register is in doubt.
+- `protocol_temperature_types.xlsx` — protocol document carrying the type 1 /
+  type 2 conversion tables and the per-register "Register Content" notes that
+  say which type each temperature uses.
+- `protocol_MWH381_MWH366_MWH367.xlsx` — sibling board family. Kept only to
+  show where the families diverge. Do not read a register out of this file and
+  apply it to MWH216.
+- `protocol_MWH216_overview.png` — scanned overview page for the MWH216.
+
+Third-party reference:
+
+- `reference_ha_config_example.yml` — a community config from the HA forums
+  (`community.home-assistant.io/t/fairland-heat-pump-to-ha/304871`). Useful for
+  HA schema shape only, **not** as a register source: it reads input registers
+  17 and 18 as min/max setpoint, which are Reserved on MWH216. It is one of the
+  "different board" configs warned about below.
 
 ## Critical facts — do not re-derive these
 
