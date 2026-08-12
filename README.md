@@ -281,8 +281,10 @@ is by contrast marked type 2 in both documents — that one is corroborated.)
 This has been tested rather than assumed. All seven documents Peraqua publish
 for the unit were checked on 2026-08-12: the other four carry no register
 annotations, and `Modbus_Wärmepumpe.xlsx` does not contain the string "Cooling
-plate temp" at all. Nothing upstream corroborates it, so the answer has to come
-from hardware.
+plate temp" at all. The unit's own factory wiring diagram (added later, in
+[`photos/`](photos/)) does not help either — it lists seven wired AIN sensors
+and IR 12 is not one of them, consistent with it being the internal heatsink.
+Nothing upstream corroborates it, so the answer has to come from hardware.
 
 If the cell is wrong, IR 12 reads 30 °C low and still looks plausible. The scan
 script prints a dedicated check comparing both readings against ambient: the
@@ -292,25 +294,53 @@ idle sample often cannot decide it — re-run with the compressor loaded. If typ
 1 turns out to be correct, three files need changing: the register map, the HA
 package, and the scan script.
 
-### Other things awaiting hardware
+### Settled without hardware — the unit's own wiring diagram
+
+Bench access to this pump may never happen, so it is worth being clear that
+some questions no longer depend on it. Photographs of this exact machine
+(see [`photos/`](photos/)) include the factory wiring-diagram plate and the
+board silkscreen, which are primary evidence for *this* unit and, for
+identity questions, outrank the generic family documents:
+
+- **What the OUT relays drive** — heating belt, 4-way valve, fan low/mid/high,
+  water pump, compressor — is silkscreen-labelled on the board. The exact
+  bit→function *numbering* is still unproven (see below), but the function set
+  is settled.
+- **The DIN inputs are named** (protection switches, remote controller, and the
+  DIN2 external-release contact), not the "generic" they were first described
+  as. So the DIN2 release path is a documented feature of this machine, not
+  just a distributor convention.
+- **The AIN1–AIN7 sensor identities and order** are confirmed and match the map.
+
+### Still needs hardware — and may stay open
+
+If the pump is never available, these become permanent caveats rather than
+to-dos. None of them block the write-free control path described below.
 
 - The PW11's actual port in Modbus TCP mode (502 vs its socket port).
 - Whether the heating setpoint sensor matches the unit's own display —
-  **confirm this before writing anything**.
+  **confirm this before writing any setpoint**.
 - Whether gas exhaust really reads 60–100 °C when running.
-- Which OUT bits are compressor, fan, 4-way valve and circulation pump. The
-  document does not say; the bits are generic. Named versions found in other
-  Fairland configs come from sibling boards and do not apply.
-- Whether DIN2 (discrete input 3) is jumpered as an external enable contact on
-  your unit. Peraqua document it that way — factory-bridged, and opening it
-  blocks the pump without overwriting any parameter — but that is a distributor
-  wiring convention, not something the Modbus document states. See the
-  [register map](mwh216_register_map.md#discrete-inputs-1x--fc02); it is also a
-  control path that needs no register write.
+- **IR 12's type-2 encoding** — still single-sourced; the wiring diagram does
+  not corroborate it (IR 12 is the internal heatsink, not one of the seven
+  wired AIN sensors). See above.
+- The exact OUT-*bit* → function numbering (needs a run cycle to pin down which
+  labelled relay is which discrete-input bit).
 - Whether the read-length constraint is actually enforced. If it is, holding
   register 25 sits outside every permitted block and cannot be read compliantly
   at all — the document defines a register its own read rule cannot address.
   See "Known ambiguities" in the register map.
+
+### If you can't validate writes: control via DIN2, read over Modbus
+
+The solar-dump use case does not depend on the unresolved write-side items. The
+**DIN2 external-release contact** blocks and releases the pump with **no
+register write at all** — a potential-free dry contact, factory-jumpered
+closed, that gates the machine like the flow switch does. Reads are safe
+regardless. So a deployment that never touches a compressor-risky write is:
+**read-only Modbus for monitoring + a relay on DIN2 for control.** That sidesteps
+every item in the list above. Confirm the jumper exists on your board first; see
+the [register map](mwh216_register_map.md#discrete-inputs-1x--fc02).
 - Whether Turbo does anything. The source qualifies it with "(Some models
   without Turbo)".
 

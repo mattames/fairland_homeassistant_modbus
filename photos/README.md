@@ -47,11 +47,18 @@ after the bit-level numbering is confirmed — see the caveats.
   CLAUDE.md. **Caveat:** exact callout→DIN-number assignment isn't cleanly
   legible; confirm which physical DIN is which before wiring a dry contact.
 - **Analog sensor order (AIN1→AIN7), from the diagram, top to bottom:**
-  inlet water · outlet water · heating-coil pipe · **cooling-coil pipe** ·
-  exhaust · return gas · air. Note the diagram calls IR 12 the "cooling coil
-  pipe temp sensor" (not "cooling plate"). This is *identity* corroboration
-  only — it does **not** resolve the type-1-vs-type-2 scaling question
-  (Open Question 1), which still needs the hardware reading.
+  inlet water · outlet water · heating-coil pipe · cooling-coil pipe ·
+  exhaust · return gas · air. These are the seven wired AIN sensors and they
+  map to input registers 3, 4, 7, 9, 6, 8, 5 respectively (see the register
+  map). Note the diagram labels AIN3/AIN4 "heating-coil pipe" / "cooling-coil
+  pipe", where the register map calls them outer/evaporator and inner/titanium
+  — same positions, different names; don't over-read the wording.
+- **IR 12 ("cooling plate") is *not* one of the seven diagram sensors.** The
+  diagram's "cooling-coil pipe" sensor is AIN4 = IR 9, a different register.
+  IR 12 has no wired AIN terminal on the plate, consistent with it being the
+  internal inverter-heatsink sensor — so the photos do **not** corroborate it,
+  and its type-1-vs-type-2 scaling (Open Question 1) still rests on a single
+  document cell and needs a hardware reading.
 - **RS485/gateway header:** the PW11 lands on board header `C60`
   (`B A G +12V`) — the diagram's "Wi-Fi terminal". Terminal 7/6/5 on the PW11
   to `B/A/G` on the board.

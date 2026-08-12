@@ -66,9 +66,25 @@ Treat this as the first thing to suspect if values are stable but wrong.
 | 90, 91 | FA, Fb | |
 | 92–95 | Reserved | |
 
-The I/O bits are generic on this board — the document gives no indication of
-what DIN1–5 and OUT1–9 are physically wired to. Identify them by watching the
-states through a run cycle.
+The *Modbus document* gives no indication of what DIN1–5 and OUT1–9 are
+physically wired to — but this unit's own factory wiring diagram does. See the
+photographs in [`photos/`](photos/) (`wiring_diagram_bphc78s.jpg`, and the
+board-silkscreen shots), which are primary evidence for this specific machine.
+
+**OUT relays — silkscreen labels on the board**, in physical order along the
+relay bank: electric heating belt of condenser · 4-way valve · fan low speed ·
+fan middle speed · fan high speed · water pump · compressor. That names what
+the generic `OUT1–OUT9` bits actually drive here — but the silkscreen gives
+*functions*, not a proven function→bit-number map (the diagram shows relay
+positions `OUT1A`…`OUT8A`, more than the seven labels). **Confirm each bit
+against a live run cycle before renaming entities** — or, if you never can,
+treat the function set as known and the exact numbering as unconfirmed.
+
+**DIN inputs — named on the wiring diagram**, not generic: remote controller,
+high-pressure protection switch, low-pressure protection switch, water-flow
+switch, and the customer remote-control (external-release) contact on DIN2
+below. The diagram's callout numbers don't cleanly resolve which physical DIN
+carries which, so confirm the specific DIN before wiring a dry contact.
 
 **DIN2 (address 3) is the external enable contact**, at least as Peraqua wire
 their units. Their one-page note *External release via DIN2* (linked from the
@@ -81,12 +97,22 @@ only if there is also a heating or cooling demand. The external controller must
 switch it **potential-free; no voltage may be applied.** Peraqua suggest
 keeping it closed for at least 60 minutes at a time to avoid short-cycling.
 
-Two caveats. This is a distributor wiring convention, not a claim in the
-manufacturer Modbus document, which still names the bit only as DIN2. And it
-describes Peraqua's units — confirm the jumper exists on your own board before
-relying on it. Note that it is also a potential control path in its own right:
-a dry contact on DIN2 blocks and releases the pump without writing any
-register.
+This is now corroborated on **this unit's own factory wiring diagram**
+([`photos/wiring_diagram_bphc78s.jpg`](photos/wiring_diagram_bphc78s.jpg),
+model `BPH(C)78s.P-1.Wi-Fi (AUS)`), which prints a "Customer remote control
+switch connector (**Disabled upon jumper on DIN2**)" callout — so it is a
+documented feature of this machine, not merely a Peraqua distributor
+convention. The manufacturer *Modbus* document still names the bit only as
+DIN2; the wiring diagram is the source that ties it to the external-release
+contact. One caveat remains: the diagram doesn't cleanly show which physical
+DIN terminal is DIN2, so confirm the jumper on your own board before relying on
+it.
+
+This matters as a control path in its own right: a potential-free dry contact
+on DIN2 blocks and releases the pump **without writing any register** — no
+setpoint or mode write, none of the write-side registers that can only be
+validated on hardware. If Modbus write validation is not available, this is the
+low-risk way to gate the pump for solar-dump control.
 
 ## Holding registers (4x) — FC03 read / FC06 write
 
@@ -138,6 +164,18 @@ setpoints.
 or restart-delay registers on this board.** Those exist on other Fairland
 boards, and configs shared online that read input registers 15+ are not for
 MWH216.
+
+This unit's factory wiring diagram
+([`photos/wiring_diagram_bphc78s.jpg`](photos/wiring_diagram_bphc78s.jpg))
+lists exactly **seven wired AIN sensors** — inlet water, outlet water,
+heating-coil pipe, cooling-coil pipe, exhaust, return gas, air — matching the
+AIN1–AIN7 assignments above (IR 3, 4, 7, 9, 6, 8, 5). It labels AIN3/AIN4
+"heating-coil"/"cooling-coil" where this table says outer/inner; same
+positions, a wording difference only. **IR 12 ("cooling plate") is not among
+those seven** — it has no external AIN sensor on the diagram, consistent with
+it being the internal inverter-heatsink temperature. So the diagram confirms
+the wired-sensor registers but adds nothing to IR 12, whose type-2 encoding
+remains single-sourced (see the README).
 
 ## Differences between board families
 

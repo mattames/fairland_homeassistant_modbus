@@ -86,26 +86,36 @@ This was tested rather than assumed. On 2026-08-12 all seven documents Peraqua
 publish for this unit were pulled and checked: the other four are a product
 manual, a hardware deck and the DIN2 note, none of which carry register
 annotations, and `Modbus_Wärmepumpe.xlsx` contains no "Cooling plate temp"
-string at all. **Nothing upstream corroborates it.** Do not go looking again —
-the answer has to come from hardware.
+string at all. The unit's own factory wiring diagram (`photos/`) does not list
+IR 12 either — it wires seven AIN sensors and IR 12 is not among them,
+consistent with it being the internal heatsink. **Nothing upstream corroborates
+it.** Do not go looking again — the answer has to come from hardware.
 
 **Input registers 15–29 are Reserved on MWH216.** There are no version,
 model-code, setpoint-limit, supply-voltage or restart-delay registers. Configs
 found online that read input registers 15+ are for a different board.
 
-**Discrete inputs 2–17 are generic** on this board: DIN1–5 (2–6), OUT1–9
-(7–15), malfunction indicator (16), compressor demand (17). The document does
-not say what they're wired to. Named versions found in other Fairland configs
-are from sibling boards and do not apply.
+**Discrete input bit layout:** DIN1–5 (2–6), OUT1–9 (7–15), malfunction
+indicator (16), compressor demand (17). The *Modbus document* does not say what
+these are wired to — but **this unit's own factory wiring diagram does** (see
+`photos/`, added 2026-08-12). The OUT relays are silkscreen-labelled: heating
+belt, 4-way valve, fan low/mid/high, water pump, compressor. The DIN inputs are
+named: protection switches (HP/LP/flow), remote controller, and the DIN2
+external-release contact. So they are **not** generic on this machine. The one
+thing the diagram does *not* pin down is the exact bit→function *numbering*
+(which discrete-input bit is which labelled relay/input) — that still needs a
+run cycle. Named mappings from *other* Fairland configs remain untrustworthy;
+this unit's own silkscreen/diagram is the authority here.
 
-The one exception is **DIN2 (DI address 3), the external enable contact** —
-jumpered closed at the factory, and opening it blocks the pump without touching
-any parameter. That comes from Peraqua's *External release via DIN2* note, not
-from the Modbus document, so it is a distributor wiring convention rather than
-a board fact; confirm the jumper exists before relying on it. See the register
-map for the detail. It is worth knowing as a control path: a potential-free dry
-contact on DIN2 blocks and releases the pump with no register write at all,
-which may suit the solar-dump use case better than Modbus writes.
+**DIN2 (DI address 3) is the external enable contact** — jumpered closed at the
+factory, and opening it blocks the pump without touching any parameter. This is
+now corroborated on **this unit's factory wiring diagram** ("Customer remote
+control switch connector — Disabled upon jumper on DIN2"), so it is a documented
+feature of this machine, not merely the Peraqua distributor note. Confirm the
+physical jumper exists before relying on it. It is the key control path if
+hardware write-validation never happens: a potential-free dry contact on DIN2
+blocks and releases the pump with **no register write at all**, which suits the
+solar-dump use case better than Modbus writes.
 
 **Coil 2 is "Restore factory values". Never write it.**
 
@@ -132,17 +142,36 @@ the slave "may return incorrect data". Permitted first addresses: 1x → 0, 48;
 single-register reads, as all working community configs do. If values are
 stable but wrong, this is the first thing to suspect.
 
-## Open questions — resolve these on real hardware
+## Open questions
+
+**Bench access to this pump may never happen.** Treat the list below as
+"resolve *if* you get hardware" rather than a blocking to-do. Some earlier
+questions have since been answered documentarily by this unit's own factory
+wiring diagram and board silkscreen (`photos/`, added 2026-08-12) — those are
+noted as settled. The rest, if never tested, become permanent caveats; none of
+them block the write-free DIN2 control path (see Intended use).
+
+Settled without hardware (wiring diagram / silkscreen):
+
+- **What the OUT relays drive** (heating belt, 4-way valve, fan low/mid/high,
+  water pump, compressor) and **that the DIN inputs are named**, not generic —
+  including DIN2 as the external-release contact. Function identities are known;
+  see the bit-numbering caveat below.
+- **AIN1–AIN7 sensor identities and order**, matching the register map.
+
+Still needs hardware (may stay open):
 
 1. **Confirm input register 12 (cooling plate) really is temperature type 2.**
-   Highest priority — it is single-sourced, see above. `scan_heatpump.py`
-   prints a dedicated check for it.
+   Highest priority — still single-sourced; the wiring diagram does not
+   corroborate it (IR 12 is the internal heatsink, not one of the seven wired
+   AIN sensors). `scan_heatpump.py` prints a dedicated check for it.
 2. Confirm the PW11's port in Modbus TCP mode (502 vs its socket port).
 3. Confirm `sensor.pool_hp_heating_setpoint` matches the unit's own display
    before writing anything.
 4. Confirm gas exhaust temp reads 60–100 °C when running, not ~30 °C below.
-5. Identify which OUT bits correspond to compressor, fan, 4-way valve, and
-   circulation pump by observing a run cycle, then rename those entities.
+5. Pin down the exact OUT-*bit* → function *numbering* by observing a run cycle,
+   then rename those entities. The functions are known from the silkscreen; only
+   which discrete-input bit maps to which labelled relay is unconfirmed.
 6. Test whether the read-length constraint is actually enforced. If it is,
    note that HR 25 sits outside every permitted block — see "Known
    ambiguities" in the register map.
