@@ -123,6 +123,18 @@ worth checking — it is the most complete public source found so far.
 |---|---|
 | `reference_ha_config_example.yml` | A community config from the [HA forums](https://community.home-assistant.io/t/fairland-heat-pump-to-ha/304871). Useful for **Home Assistant schema shape only, not as a register source** — it reads input registers 17 and 18 as min/max setpoint, which are Reserved on MWH216. It is an example of the "different board" configs described above. |
 
+### Hardware photos — this unit
+
+[`photos/`](photos/) holds photographs of the owner's actual control
+compartment and Protoss PW11 install, with a captioned index in
+[`photos/README.md`](photos/README.md). Because they show this board's
+silkscreen and the factory wiring-diagram plate, they are **primary evidence
+for this specific unit** — they confirm the board is MWH216-V3 in a 3-phase
+400 V `BPH(C)78s` machine, and they carry the OUT-relay labels, DIN-input
+names, and AIN sensor order for *this* hardware. See that index for which
+findings are settled and which still need a bench reading before the register
+map is edited.
+
 ---
 
 ## Using the Home Assistant package
